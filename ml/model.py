@@ -8,8 +8,8 @@ class SimpleCNN(nn.Module):
 
         # -------- Convolution Block 1 --------
         self.conv1 = nn.Conv2d(
-            in_channels=3,      # RGB
-            out_channels=8,     # number of filters
+            in_channels=3,
+            out_channels=8,
             kernel_size=3,
             padding=1
         )
@@ -24,10 +24,11 @@ class SimpleCNN(nn.Module):
 
         # -------- Fully Connected Layers --------
         self.fc1 = nn.Linear(16 * 56 * 56, 64)
+        self.dropout = nn.Dropout(0.5)     # ✅ ADD HERE
         self.fc2 = nn.Linear(64, 1)
 
     def forward(self, x):
-        # x shape: [batch, 3, 224, 224]
+        # x: [batch, 3, 224, 224]
 
         x = self.conv1(x)
         x = F.relu(x)
@@ -41,6 +42,8 @@ class SimpleCNN(nn.Module):
 
         x = self.fc1(x)
         x = F.relu(x)
+
+        x = self.dropout(x)        # ✅ DROP HERE (BEST PLACE)
 
         x = self.fc2(x)
         return x   # raw score (logit)
