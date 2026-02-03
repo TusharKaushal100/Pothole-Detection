@@ -1,76 +1,106 @@
-import torch
-import torch.nn as nn
-from torchvision import datasets, transforms
-from torch.utils.data import DataLoader
-from model import SimpleCNN
+import tensorflow as tf
+from tensorflow.keras import layers, models
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+import numpy as np
+import os
 
-# -------- Config --------
-IMAGE_SIZE = 224
-BATCH_SIZE = 8
-EPOCHS = 12
-LR = 0.001
+# ── Parameters ────────────────────────────────────────
+IMG_HEIGHT = 128
+IMG_WIDTH  = 128
+BATCH_SIZE = 32          # start with 32; reduce to 16/8 if OOM
+EPOCHS     = 30          # you can increase or use early stopping
+SEED       = 42
 
-# -------- Transforms --------
-# transform = transforms.Compose([
-#     transforms.Resize((IMAGE_SIZE, IMAGE_SIZE)),
-#     transforms.ToTensor()
-# ])
+# Paths (adjust if needed)
+TRAIN_DIR = "new_dataset/train"
+TEST_DIR  = "new_dataset/test"
 
-train_transform = transforms.Compose([
-    transforms.Resize((224, 224)),
-    transforms.RandomHorizontalFlip(),
-    transforms.RandomRotation(10),
-    transforms.ColorJitter(brightness=0.2, contrast=0.2),
-    transforms.ToTensor(),
-    transforms.Normalize(
-        mean=[0.485, 0.456, 0.406],
-        std=[0.229, 0.224, 0.225]
-    )
+# ── Data Augmentation (helps a lot with small datasets) ──
+train_datagen = ImageDataGenerator(
+    rescale=1./255,
+    rotation_range=20,
+    width_shift_range=0.15,
+    height_shift_range=0.15,
+    shear_range=0.15,
+    zoom_range=0.2,
+    horizontal_flip=True,
+    brightness_range=[0.7, 1.3],
+    fill_mode='nearest'
+)
+
+test_datagen = ImageDataGenerator(rescale=1./255)   # only rescale for test
+
+# ── Generators ────────────────────────────────────────
+train_generator = train_datagen.flow_from_directory(
+    TRAIN_DIR,
+    target_size=(IMG_HEIGHT, IMG_WIDTH),
+    batch_size=BATCH_SIZE,
+    class_mode='binary',          # binary → pothole (1) vs normal (0)
+    shuffle=True,
+    seed=SEED
+)
+
+validation_generator = test_datagen.flow_from_directory(   # we use test as val for simplicity
+    TEST_DIR,
+    target_size=(IMG_HEIGHT, IMG_WIDTH),
+    batch_size=BATCH_SIZE,
+    class_mode='binary',
+    shuffle=False                 # important for clean evaluation
+)
+
+# Print class indices (should be {'Plain': 0, 'Pothole': 1} or similar)
+print("Class indices:", train_generator.class_indices)
+
+# ── Simple but effective CNN model ────────────────────
+model = models.Sequential([
+    layers.Conv2D(32, (3,3), activation='relu', input_shape=(IMG_HEIGHT, IMG_WIDTH, 3)),
+    layers.MaxPooling2D((2,2)),
+
+    layers.Conv2D(64, (3,3), activation='relu'),
+    layers.MaxPooling2D((2,2)),
+
+    layers.Conv2D(128, (3,3), activation='relu'),
+    layers.MaxPooling2D((2,2)),
+
+    layers.Conv2D(128, (3,3), activation='relu'),
+    layers.MaxPooling2D((2,2)),
+
+    layers.Flatten(),
+    layers.Dense(512, activation='relu'),
+    layers.Dropout(0.5),
+    layers.Dense(1, activation='sigmoid')   # binary output
 ])
 
-# -------- Dataset --------
-dataset = datasets.ImageFolder(
-    root="dataset",
-    transform=train_transform
+model.summary()
+
+# Compile
+model.compile(
+    optimizer='adam',
+    loss='binary_crossentropy',
+    metrics=['accuracy']
 )
 
-loader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True)
-
-# -------- Model --------
-model = SimpleCNN()
-
-criterion = nn.BCEWithLogitsLoss(
-    pos_weight=torch.tensor([1.5])
-)
-optimizer = torch.optim.Adam(
-    model.parameters(),
-    lr=0.0003,
-    weight_decay=1e-4
+# ── Train ─────────────────────────────────────────────
+history = model.fit(
+    train_generator,
+    epochs=EPOCHS,
+    validation_data=validation_generator,
+    verbose=1
 )
 
-# -------- Training Loop --------
-for epoch in range(EPOCHS):
-    total_loss = 0.0
-    print("Starting epoch", epoch+1)
-    number = 0
-    for images, labels in loader:
-        print("Processing batch", number)
+# ── Save model ────────────────────────────────────────
+model.save("pothole_cnn_simple.h5")
+print("Model saved as pothole_cnn_simple.h5")
 
-        number += 1
-        labels = labels.float().unsqueeze(1)
+# ── Evaluate on test set (accuracy & loss) ────────────
+print("\nEvaluating on test set...")
+test_loss, test_acc = model.evaluate(validation_generator)
+print(f"Test accuracy: {test_acc:.4f}  |  Test loss: {test_loss:.4f}")
 
-        optimizer.zero_grad()
-
-        outputs = model(images)
-        loss = criterion(outputs, labels)
-
-        loss.backward()
-        optimizer.step()
-
-        total_loss += loss.item()
-
-    print(f"Epoch {epoch+1}/{EPOCHS} - Loss: {total_loss:.4f}")
-
-# -------- Save Model --------
-torch.save(model.state_dict(), "pothole_cnn.pth")
-print("Model saved as pothole_cnn.pth")
+# Optional: Predict on few images (example)
+# from tensorflow.keras.preprocessing import image
+# img = image.load_img("new_dataset/test/Pothole/some.jpg", target_size=(128,128))
+# img_array = image.img_to_array(img) / 255.0
+# img_array = np.expand_dims(img_array, axis=0)
+# pred = model.predict(img_array)[0][0]
+# print("Pothole probability:", pred)
