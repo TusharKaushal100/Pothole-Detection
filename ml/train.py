@@ -28,9 +28,9 @@ train_datagen = ImageDataGenerator(
     fill_mode='nearest'
 )
 
-test_datagen = ImageDataGenerator(rescale=1./255)   # only rescale for test
+test_datagen = ImageDataGenerator(rescale=1./255)   
 
-# ── Generators ────────────────────────────────────────
+
 train_generator = train_datagen.flow_from_directory(
     TRAIN_DIR,
     target_size=(IMG_HEIGHT, IMG_WIDTH),
